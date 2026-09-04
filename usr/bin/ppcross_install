@@ -5,11 +5,10 @@
 
 ## NOTE: No longer in use.
 
-## style-ok: no-has -- standalone cross-arch bootstrap installer; runs as root
-## before helper-scripts is on PATH, so it self-checks safe-rm with 'command -v'
-## rather than the helper-scripts 'has'.
-## style-ok: allow-apt-get -- deliberately drives apt-get directly to install
-## the cross-compiler toolchain in a bootstrap context.
+## style-ok: no-has -- helper-scripts may not be available.
+## style-ok: allow-apt-get -- helper-scripts may not be available.
+## WARNING: Unreviewed AI-assisted changes made. This file hasn't been reviewed
+## yet since maintainers are considering deleting it altogether.
 
 set -x
 set -o errexit
