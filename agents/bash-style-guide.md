@@ -340,6 +340,26 @@ cleanup step tempts the `if...then` rewrite; keep the fail-closed form
 `[ cond ] || { cleanup; die ...; }`. See R-014.
 
 
+**R-019: Don't put `!` and `-o`/`-a` in the same `[ ... ]`.** Inside
+`[`/`test`, `-o` and `-a` are the binary OR/AND operators, so
+`[ ! -o xtrace ]` parses as `[ "!" -o "xtrace" ]` (two non-empty
+strings OR'd) -- always true -- NOT "xtrace option is unset".
+_auto-detected: no | auto-fixed: no_
+
+Bad -- always true, the negation is silently lost:
+
+    [ ! -o xtrace ] && do_thing
+
+Good -- negate OUTSIDE the brackets, one test per bracket:
+
+    if ! [ -o xtrace ]; then do_thing; fi
+
+Why: `test -o <opt>` checks a shell option only as a lone unary test;
+add a `!` operand and the parser re-reads `-o` as OR. Applies to `-a`
+too. Keep each `[ ... ]` a single condition and combine with shell
+`&&` / `||` / `!` outside the brackets.
+
+
 ## Variables
 
 **R-020: Wrap every variable reference in `${var}` braces.** No
