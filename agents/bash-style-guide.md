@@ -296,6 +296,50 @@ guard the producer's failure explicitly. Applies on TOUCH, like other
 structural debt -- do not mass-rewrite pre-existing `< <(...)` unprompted.
 
 
+**R-017: A command-less `exec` redirect applies to the WHOLE shell,
+permanently -- group-scope it.** An `exec` with a redirection and NO
+command does not scope the redirect to the fd-open; it redirects the
+current shell for the rest of the run.
+_auto-detected: no | auto-fixed: no_
+
+Bad -- silently swallows every later stderr write:
+
+    exec {fd}<>"${lock}" 2>/dev/null
+
+Good -- group so the redirect dies with the group:
+
+    { exec {fd}<>"${lock}"; } 2>/dev/null
+
+Why: a shell-wide `2>/dev/null` is a classic silent-green -- a failing
+suite writing `FAIL:` to stderr shows only a bare "exit 1" with no
+detail. Never hang a `2>/dev/null` (or any redirect) on a command-less
+`exec` unless you truly intend it shell-wide. (R-103's fd-redirect
+carve-out is about process replacement, a different concern.)
+
+
+**R-018: Don't rewrite a `[ cond ] || die` guard into a positive
+`if [ negated ]; then die`.** A `[`/`test` with a malformed or
+non-integer operand exits 2 (ERROR), not 1. `[ cond ] || die` fires on
+ANY non-zero, the exit-2 error included (fail-CLOSED); `if [ negated ];
+then die; fi` swallows the exit-2 as "false" and SKIPS the die
+(fail-OPEN).
+_auto-detected: no | auto-fixed: no_
+
+Bad -- fails OPEN when `${n}` is a non-integer override:
+
+    if [ "${n}" -gt "${MAX}" ]; then die 1 "too big"; fi
+
+Good -- keep the `||`, or negate with `!` (still fires on the `[` error):
+
+    [ "${n}" -le "${MAX}" ] || die 1 "too big"
+    if ! [ "${n}" -le "${MAX}" ]; then die 1 "too big"; fi
+
+Why: matters most for a guard whose operands are attacker- or
+user-controlled (a numeric ceiling from an env override). Adding a
+cleanup step tempts the `if...then` rewrite; keep the fail-closed form
+`[ cond ] || { cleanup; die ...; }`. See R-014.
+
+
 ## Variables
 
 **R-020: Wrap every variable reference in `${var}` braces.** No
