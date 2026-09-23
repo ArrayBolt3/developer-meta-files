@@ -70,28 +70,18 @@ done
 ## Opt-in by design.
 default_if_empty dry_run 'true'
 
-## Probe the whole range, not just nbd0. Keying on /dev/nbd0 alone missed a
-## leaked /dev/nbd1 on a host where node 0 was absent, and exited 0 reporting
-## nothing to do.
-##
-## TODO: This block just checks if nbd devices exist at all, and the
-## subsequent code is robust even if there are no nbd devices and the nbd
-## kernel module is not loaded. Maybe get rid of this?
-nbd_present=false
-for nbd_probe in /dev/nbd[0-9] /dev/nbd[0-9][0-9]; do
-   if [ -b "${nbd_probe}" ]; then
-      nbd_present=true
-      break
-   fi
-done
-if [ "${nbd_present}" = "false" ]; then
-   printf '%s\n' "${0##*/}: no /dev/nbd* devices; nothing to release."
-   exit 0
-fi
+## No up-front /dev/nbd* probe: the mount collection below matches nbd devices by
+## name in the mounts file, and the device-disconnect loop guards each node with
+## '[ -b ]', so both are correct whether or not any nbd node or the kernel module
+## is present. An early "nothing to release" exit only hid that robustness.
 
 ## Unmount all mountpoints backed by an nbd device. Note that we have to get a
 ## list of all mount points before unmounting any, otherwise /proc/mounts
 ## mutates while we're actively reading it and we miss things.
+##
+## The mounts source is overridable (defaulting to the live kernel file) so a test
+## can drive the snapshot-before-unmount ordering against a fixture without root.
+proc_mounts="${DM_NBD_CLEANUP_PROC_MOUNTS:-/proc/mounts}"
 nbd_mount_points=()
 while read -r mounts_device mounts_point _; do
    if [[ "${mounts_device}" != /dev/nbd* ]]; then
@@ -99,7 +89,7 @@ while read -r mounts_device mounts_point _; do
    fi
    printf -v mounts_point_decoded '%b' "${mounts_point}"
    nbd_mount_points+=( "${mounts_point_decoded}" )
-done < /proc/mounts
+done < "${proc_mounts}"
 
 release_failures=0
 released_mounts=0
