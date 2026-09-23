@@ -108,6 +108,7 @@ moves its former top-level logic into `main()`:
        set -o errtrace
        shopt -s inherit_errexit
        shopt -s shift_verbose
+       export LC_ALL=C
     fi
 
     main() {
@@ -129,7 +130,7 @@ into the sourcing shell).
 
 Why: the gate (R-010) already recognises the guarded form - zero
 column-0 strict directives plus a `was_executed`/`was_sourced` call in
-command position exempts the script from the top-level all-six
+command position exempts the script from the top-level all-seven
 requirement, because enabling strict-mode at top level would leak into
 any sourcing script.
 
