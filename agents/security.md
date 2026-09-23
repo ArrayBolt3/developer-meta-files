@@ -150,8 +150,8 @@ non-dir and the wipe branch fires on the host.
   payload-malformed, refuse / die -- never fall through to a wipe.
 - `[ -d X ]` FOLLOWS symlinks: a symlink-to-dir passes a bare `-d`
   gate, then an `rsync SRC/ DST/` trailing-slash source dereferences it
-  and copies the link target (host-secret exfil). Test `[ -L X ]` FIRST
-  and reject any symlink.
+  and copies the link target. Consider the security impact of symlinks
+  on a case-by-case basis and consider if they should be rejected.
 - Test the hostile shapes explicitly -- file-named-as-dir, empty,
   misnamed top-level, symlink-to-dir -- asserting the host artifact
   SURVIVES and nothing exfiltrates. Exercise the REPLACE-OVER-EXISTING
