@@ -70,20 +70,38 @@ done
 ## Opt-in by design.
 default_if_empty dry_run 'true'
 
-## The mount source is /proc/self/mountinfo, whose field 3 is the mount's backing
-## device major:minor as the KERNEL sees it -- not the attacker-controllable source
-## STRING in /proc/mounts. An unprivileged FUSE mount can set fsname=/dev/nbd0, but
-## it cannot forge the nbd block-device major, so keying on the real major closes
-## the confused-deputy where a spoofed source string got sudo-umounted. Overridable
-## so a test can drive the release path against a fixture without root; its presence
-## marks a test run, which skips the block-device probe below (a rootless test has
-## no real /dev/nbd* node).
+## Identify nbd-backed mounts from /proc/self/mountinfo (kernel-written), not the
+## attacker-controllable /proc/mounts source STRING. Two kernel truths together, so
+## neither a spoof nor an anonymous-superblock filesystem slips:
+##  - field 3 (major:minor) is the mount's st_dev. A filesystem mounted DIRECTLY on
+##    the block device (ext4, xfs, ...) reports the nbd major (NBD_MAJOR 43), which
+##    an unprivileged user cannot forge.
+##  - btrfs and other anonymous-superblock filesystems report st_dev major 0, so the
+##    major alone would MISS a genuine nbd-backed btrfs -- the tool would then
+##    disconnect the device under a live mount. For those, fall back to the mount
+##    SOURCE matching /dev/nbd*, but ONLY when the filesystem TYPE is a real block
+##    filesystem (listed in /proc/filesystems WITHOUT the 'nodev' flag). The kernel
+##    sets the type; an unprivileged FUSE / tmpfs spoof (fsname /dev/nbd0) is a
+##    'nodev' type and is rejected -- this is what closes the confused-deputy.
+## The overridable inputs let a test drive the release path against fixtures without
+## root; DM_NBD_CLEANUP_PROC_MOUNTINFO also marks a test run (skips the block-device
+## probe, which a rootless test cannot satisfy).
 proc_mountinfo="${DM_NBD_CLEANUP_PROC_MOUNTINFO:-/proc/self/mountinfo}"
+proc_filesystems="${DM_NBD_CLEANUP_PROC_FILESYSTEMS:-/proc/filesystems}"
 
-## NBD_MAJOR is a static kernel allocation (include/uapi/linux/major.h). Any block
-## device with this major is an nbd device; nothing an unprivileged user can mount
-## (tmpfs is major 0, fuse likewise) shares it.
+## NBD_MAJOR is a static kernel allocation (include/uapi/linux/major.h).
 nbd_major='43'
+
+## Space-delimited set of real (non-'nodev') block filesystem types, for a
+## substring test below. A 'nodev' line (tmpfs, fuse, overlay, ...) is a virtual /
+## userspace filesystem an unprivileged user can mount with a forged source string.
+block_fs_types=' '
+while read -r fs_flag_or_type _; do
+   ## '<tab>ext4' -> $1=ext4 (block); 'nodev<tab>tmpfs' -> $1=nodev (virtual).
+   if [ "${fs_flag_or_type}" != "nodev" ] && [ -n "${fs_flag_or_type}" ]; then
+      block_fs_types+="${fs_flag_or_type} "
+   fi
+done < "${proc_filesystems}"
 
 ## Probe the whole range, not just nbd0. Keying on /dev/nbd0 alone missed a
 ## leaked /dev/nbd1 on a host where node 0 was absent, and exited 0 reporting
@@ -105,16 +123,33 @@ if [ -z "${DM_NBD_CLEANUP_PROC_MOUNTINFO:-}" ]; then
    fi
 fi
 
-## Collect every mountpoint whose backing device is a real nbd device, keyed on
-## the kernel-reported major (mountinfo field 3), never the source string. Get the
-## full list before unmounting any: unmounting mutates mountinfo while we read it,
-## so a live read would miss entries.
-## mountinfo fields: 1 id, 2 parent, 3 major:minor, 4 root, 5 mount point, ...
+## Collect every nbd-backed mountpoint. Snapshot the full list BEFORE unmounting
+## any: unmounting mutates mountinfo while we read it, so a live read would skip
+## later entries.
+## mountinfo line: ID PARENT MAJ:MIN ROOT MOUNTPOINT OPTS [OPTIONAL...] - FS SRC OPTS
 nbd_mount_points=()
-while read -r _ _ mounts_majmin _ mounts_point _; do
-   if [ "${mounts_majmin%%:*}" != "${nbd_major}" ]; then
+while IFS= read -r mounts_line; do
+   ## Split at the ' - ' field separator (mountinfo escapes spaces as \040, so a
+   ## literal ' - ' only ever appears as that separator).
+   mounts_pre="${mounts_line%% - *}"
+   mounts_post="${mounts_line#* - }"
+   read -r _ _ mounts_majmin _ mounts_point _ <<< "${mounts_pre}"
+   read -r mounts_fstype mounts_source _ <<< "${mounts_post}"
+
+   mounts_is_nbd='false'
+   if [ "${mounts_majmin%%:*}" = "${nbd_major}" ]; then
+      ## Block filesystem mounted directly on the nbd device (ext4, xfs, ...).
+      mounts_is_nbd='true'
+   elif [[ "${mounts_source}" == /dev/nbd* ]] \
+      && [[ "${block_fs_types}" == *" ${mounts_fstype} "* ]]; then
+      ## Anonymous-superblock block filesystem (btrfs, ...) whose kernel-set type
+      ## proves it is a real block fs -- not a forgeable 'nodev' spoof.
+      mounts_is_nbd='true'
+   fi
+   if [ "${mounts_is_nbd}" != 'true' ]; then
       continue
    fi
+
    printf -v mounts_point_decoded '%b' "${mounts_point}"
    nbd_mount_points+=( "${mounts_point_decoded}" )
 done < "${proc_mountinfo}"
