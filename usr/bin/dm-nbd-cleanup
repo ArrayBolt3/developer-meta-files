@@ -70,11 +70,20 @@ done
 ## Opt-in by design.
 default_if_empty dry_run 'true'
 
-## The mounts source is overridable (defaulting to the live kernel file) so a test
-## can drive the release path against a fixture without root. Its presence marks a
-## test run, which skips the block-device probe below (a rootless test has no real
-## /dev/nbd* node).
-proc_mounts="${DM_NBD_CLEANUP_PROC_MOUNTS:-/proc/mounts}"
+## The mount source is /proc/self/mountinfo, whose field 3 is the mount's backing
+## device major:minor as the KERNEL sees it -- not the attacker-controllable source
+## STRING in /proc/mounts. An unprivileged FUSE mount can set fsname=/dev/nbd0, but
+## it cannot forge the nbd block-device major, so keying on the real major closes
+## the confused-deputy where a spoofed source string got sudo-umounted. Overridable
+## so a test can drive the release path against a fixture without root; its presence
+## marks a test run, which skips the block-device probe below (a rootless test has
+## no real /dev/nbd* node).
+proc_mountinfo="${DM_NBD_CLEANUP_PROC_MOUNTINFO:-/proc/self/mountinfo}"
+
+## NBD_MAJOR is a static kernel allocation (include/uapi/linux/major.h). Any block
+## device with this major is an nbd device; nothing an unprivileged user can mount
+## (tmpfs is major 0, fuse likewise) shares it.
+nbd_major='43'
 
 ## Probe the whole range, not just nbd0. Keying on /dev/nbd0 alone missed a
 ## leaked /dev/nbd1 on a host where node 0 was absent, and exited 0 reporting
@@ -82,7 +91,7 @@ proc_mounts="${DM_NBD_CLEANUP_PROC_MOUNTS:-/proc/mounts}"
 ## never reaches the mount loop -- so a spoofed non-nbd mount whose source string
 ## merely looks like /dev/nbd* cannot be reached there. Skipped only for a fixture
 ## (test) run.
-if [ -z "${DM_NBD_CLEANUP_PROC_MOUNTS:-}" ]; then
+if [ -z "${DM_NBD_CLEANUP_PROC_MOUNTINFO:-}" ]; then
    nbd_present=false
    for nbd_probe in /dev/nbd[0-9] /dev/nbd[0-9][0-9]; do
       if [ -b "${nbd_probe}" ]; then
@@ -96,17 +105,19 @@ if [ -z "${DM_NBD_CLEANUP_PROC_MOUNTS:-}" ]; then
    fi
 fi
 
-## Unmount all mountpoints backed by an nbd device. Note that we have to get a
-## list of all mount points before unmounting any, otherwise /proc/mounts
-## mutates while we're actively reading it and we miss things.
+## Collect every mountpoint whose backing device is a real nbd device, keyed on
+## the kernel-reported major (mountinfo field 3), never the source string. Get the
+## full list before unmounting any: unmounting mutates mountinfo while we read it,
+## so a live read would miss entries.
+## mountinfo fields: 1 id, 2 parent, 3 major:minor, 4 root, 5 mount point, ...
 nbd_mount_points=()
-while read -r mounts_device mounts_point _; do
-   if [[ "${mounts_device}" != /dev/nbd* ]]; then
+while read -r _ _ mounts_majmin _ mounts_point _; do
+   if [ "${mounts_majmin%%:*}" != "${nbd_major}" ]; then
       continue
    fi
    printf -v mounts_point_decoded '%b' "${mounts_point}"
    nbd_mount_points+=( "${mounts_point_decoded}" )
-done < "${proc_mounts}"
+done < "${proc_mountinfo}"
 
 release_failures=0
 released_mounts=0
