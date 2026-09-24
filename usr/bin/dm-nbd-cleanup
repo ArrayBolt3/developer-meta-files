@@ -70,18 +70,35 @@ done
 ## Opt-in by design.
 default_if_empty dry_run 'true'
 
-## No up-front /dev/nbd* probe: the mount collection below matches nbd devices by
-## name in the mounts file, and the device-disconnect loop guards each node with
-## '[ -b ]', so both are correct whether or not any nbd node or the kernel module
-## is present. An early "nothing to release" exit only hid that robustness.
+## The mounts source is overridable (defaulting to the live kernel file) so a test
+## can drive the release path against a fixture without root. Its presence marks a
+## test run, which skips the block-device probe below (a rootless test has no real
+## /dev/nbd* node).
+proc_mounts="${DM_NBD_CLEANUP_PROC_MOUNTS:-/proc/mounts}"
+
+## Probe the whole range, not just nbd0. Keying on /dev/nbd0 alone missed a
+## leaked /dev/nbd1 on a host where node 0 was absent, and exited 0 reporting
+## nothing to do. In production this early exit also means a host with no nbd node
+## never reaches the mount loop -- so a spoofed non-nbd mount whose source string
+## merely looks like /dev/nbd* cannot be reached there. Skipped only for a fixture
+## (test) run.
+if [ -z "${DM_NBD_CLEANUP_PROC_MOUNTS:-}" ]; then
+   nbd_present=false
+   for nbd_probe in /dev/nbd[0-9] /dev/nbd[0-9][0-9]; do
+      if [ -b "${nbd_probe}" ]; then
+         nbd_present=true
+         break
+      fi
+   done
+   if [ "${nbd_present}" = "false" ]; then
+      printf '%s\n' "${0##*/}: no /dev/nbd* devices; nothing to release."
+      exit 0
+   fi
+fi
 
 ## Unmount all mountpoints backed by an nbd device. Note that we have to get a
 ## list of all mount points before unmounting any, otherwise /proc/mounts
 ## mutates while we're actively reading it and we miss things.
-##
-## The mounts source is overridable (defaulting to the live kernel file) so a test
-## can drive the snapshot-before-unmount ordering against a fixture without root.
-proc_mounts="${DM_NBD_CLEANUP_PROC_MOUNTS:-/proc/mounts}"
 nbd_mount_points=()
 while read -r mounts_device mounts_point _; do
    if [[ "${mounts_device}" != /dev/nbd* ]]; then
