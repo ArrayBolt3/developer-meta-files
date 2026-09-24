@@ -140,14 +140,15 @@ while IFS= read -r mounts_line; do
    if [ "${mounts_majmin%%:*}" = "${nbd_major}" ]; then
       ## Block filesystem mounted directly on the nbd device (ext4, xfs, ...).
       mounts_is_nbd='true'
-   elif [[ "${mounts_source}" == /dev/nbd[0-9]* ]] \
+   elif [[ "${mounts_source}" =~ ^/dev/nbd[0-9]+(p[0-9]+)?$ ]] \
       && [[ "${block_fs_types}" == *" ${mounts_fstype} "* ]]; then
       ## Anonymous-superblock block filesystem (btrfs, ...) whose kernel-set type
-      ## proves it is a real block fs -- not a forgeable 'nodev' spoof. Require a
-      ## DIGIT after /dev/nbd so a same-prefix name (/dev/nbd-backup) does not
-      ## match. Known limitation: a MULTI-device btrfs whose mountinfo source is a
-      ## non-nbd member (btrfs reports only latest_dev) is not caught here; that
-      ## needs btrfs member enumeration, out of scope for this cleanup.
+      ## proves it is a real block fs -- not a forgeable 'nodev' spoof. Match the
+      ## EXACT nbd device/partition name (/dev/nbdN or /dev/nbdNpM) so a same-prefix
+      ## name (/dev/nbd-backup, /dev/nbd0-backup) cannot match. Known limitation: a
+      ## MULTI-device btrfs whose mountinfo source is a non-nbd member (btrfs
+      ## reports only latest_dev) is not caught here; that needs btrfs member
+      ## enumeration, out of scope for this cleanup.
       mounts_is_nbd='true'
    fi
    if [ "${mounts_is_nbd}" != 'true' ]; then
