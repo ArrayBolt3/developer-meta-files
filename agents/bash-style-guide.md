@@ -319,11 +319,12 @@ carve-out is about process replacement, a different concern.)
 
 
 **R-018: Don't rewrite a `[ cond ] || die` guard into a positive
-`if [ negated ]; then die`.** A `[`/`test` with a malformed or
-non-integer operand exits 2 (ERROR), not 1. `[ cond ] || die` fires on
-ANY non-zero, the exit-2 error included (fail-CLOSED); `if [ negated ];
-then die; fi` swallows the exit-2 as "false" and SKIPS the die
-(fail-OPEN).
+`if [ reverse-cond ]; then die`.** `[ cond ] || die` fires if the
+condition is not met OR if an error occurs while evaluating the
+condition, whereas `if [ reverse-cond ]; then die; fi` only fires if
+the reversed condition is met. The former therefore will fail CLOSED
+when an error occurs (good) whereas the latter will fail OPEN (not
+good).
 _auto-detected: no | auto-fixed: no_
 
 Bad -- fails OPEN when `${n}` is a non-integer override:
@@ -337,8 +338,10 @@ Good -- keep the `||`, or negate with `!` (still fires on the `[` error):
 
 Why: matters most for a guard whose operands are attacker- or
 user-controlled (a numeric ceiling from an env override). Adding a
-cleanup step tempts the `if...then` rewrite; keep the fail-closed form
-`[ cond ] || { cleanup; die ...; }`. See R-014.
+cleanup step tempts the `if...then` rewrite; keep the original
+condition and add a `!` before it rather than reversing the condition.
+See R-014. Do NOT add a cleanup by writing
+`[ cond ] || { cleanup; die ...; }` as that would violate R-074.
 
 
 **R-019: Don't put `!` and `-o`/`-a` in the same `[ ... ]`.** Inside
