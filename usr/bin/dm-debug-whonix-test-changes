@@ -33,12 +33,14 @@ trap "build_all_error_handler" ERR
 
 pushd -- "${derivative_maker_main_source_code}"
 
-./derivative-maker --flavor whonix-gateway-lxqt "$@"
+## '--repo true': the repo choice is mandatory now; enable the derivative repository
+## to match a real build. A caller's "$@" can override it (last-flag-wins).
+./derivative-maker --repo true --flavor whonix-gateway-lxqt "$@"
 ./build-steps.d/*_convert-raw-to-vdi --flavor whonix-gateway-lxqt "$@"
 ./build-steps.d/*_create-vbox-vm --flavor whonix-gateway-lxqt "$@"
 ./build-steps.d/*_export-vbox-vm --flavor whonix-gateway-lxqt "$@"
 
-./derivative-maker --flavor whonix-workstation-lxqt "$@"
+./derivative-maker --repo true --flavor whonix-workstation-lxqt "$@"
 ./build-steps.d/*_convert-raw-to-vdi --flavor whonix-workstation-lxqt "$@"
 ./build-steps.d/*_create-vbox-vm --flavor whonix-workstation-lxqt "$@"
 ./build-steps.d/*_export-vbox-vm --flavor whonix-workstation-lxqt "$@"
