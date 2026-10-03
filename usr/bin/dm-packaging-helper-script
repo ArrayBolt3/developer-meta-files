@@ -1429,6 +1429,10 @@ pkg_git_remotes_add() {
 ## pkg_git_branch_agnostic=true to skip this; dm-tidy does so for its
 ## remote-ensure, so it runs on 'ai' or detached submodules. Do NOT relax the
 ## master requirement itself to accept 'ai'.
+## The opt-out is a plain env flag the caller sets INLINE per invocation
+## (dm-tidy scopes it to the remote-ensure subprocess). Deliberately NOT
+## per-target gated: a stale/broad value skipping the guard for other targets
+## is an env accident, out of scope -- settled, do not re-litigate.
 pkg_git_check_current_branch() {
    [ "${pkg_git_branch_agnostic:-}" = "true" ] && return 0
 
