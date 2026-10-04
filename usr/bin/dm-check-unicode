@@ -190,7 +190,6 @@ if grep \
       --exclude=changelog \
       --exclude=changelog.upstream \
       --exclude-dir=.git \
-      --exclude-dir=live-build \
       -- \
       '[[:blank:]]$' ; then
    true "\
