@@ -19,9 +19,6 @@ source /usr/libexec/helper-scripts/git.sh
 ## XXX: hardcoded path
 derivative_maker_source_code_dir="${HOME}/derivative-maker"
 
-## minimum_unixtime now lives in the dist-system-metadata package; the generator
-## stays in timesanitycheck but writes into dist-system-metadata, and the commit
-## lands there.
 minimum_unixtime_file="${derivative_maker_source_code_dir}/packages/kicksecure/dist-system-metadata/usr/share/dist-system-metadata/timesanitycheck/minimum_unixtime"
 
 "${derivative_maker_source_code_dir}/packages/kicksecure/timesanitycheck/usr/share/timesanitycheck/date-minimum-file-create" "${minimum_unixtime_file}"
@@ -34,10 +31,8 @@ fi
 
 git diff HEAD
 
-## Interactive gate: this script is meant to be run by hand. The
-## read blocks until the operator presses enter, giving them a
-## chance to inspect the diff before the commit. Non-interactive
-## runs (CI etc.) will hang here.
+## This script is only run manually, so we don't care that CI would hang if it
+## reached here.
 true "press enter to continue"
 read -r temp
 
