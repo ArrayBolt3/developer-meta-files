@@ -99,9 +99,15 @@ jobs:
       ## succeeds. Narrower than '--privileged', which also grants every
       ## other capability plus raw device access.
       ##
-      ## Scope: the fork-PR guard below means only same-repo code reaches
-      ## this job, so no untrusted contributor payload runs with it.
-      options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined
+      ## seccomp=unconfined: SYS_ADMIN is root's; a suite whose subject is an
+      ## UNPRIVILEGED user+mount namespace (qube-ctl's tmpdir budget) runs as the
+      ## non-root build user, whose unshare(CLONE_NEWUSER) Docker's DEFAULT seccomp
+      ## profile blocks regardless of the container's caps -- unconfining seccomp
+      ## is the only way to exercise that path in the container.
+      ##
+      ## Scope: the fork-PR guard below means only same-repo code reaches this
+      ## job, so no untrusted contributor payload runs with these relaxations.
+      options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined --security-opt=seccomp=unconfined
     timeout-minutes: ${{ inputs.timeout-minutes }}
     ## Fork-PR guard: forked PRs need maintainer review before consuming
     ## CI time. Same guard as the other reusables (agents/security.md).
@@ -239,6 +245,22 @@ jobs:
           # directive written with one hash, so a '##' form is silently inert
           # and actionlint's shellcheck pass reports SC2086 anyway.)
           apt-get install --yes --no-install-recommends ${APT_PACKAGES}
+
+      - name: Install static-analysis CLIs (zizmor, actionlint)
+        if: steps.cfg.outputs.static_analysis_tools == 'true'
+        ## Neither tool is Debian-packaged, so the apt step above cannot carry
+        ## them; the component ships a pinned installer (static-cli-install) that
+        ## downloads an exact version and verifies it against a committed sha256,
+        ## computed locally from the asset (never read off a web page). The gate
+        ## logic stays in the component's committed script, not inline here.
+        ## --no-attest --no-vt: a bare CI container cannot run the stronger SLSA /
+        ## VirusTotal checks -- the attestations API 403s without a GitHub token
+        ## and CI has no VT key -- so the committed sha256 pin is the integrity
+        ## anchor here (the maintainer re-verifies SLSA when bumping a pin). Needs
+        ## 'helper-scripts: true' (the installer sources it), opted in alongside.
+        run: |
+          component/usr/bin/static-cli-install --tool zizmor --no-attest --no-vt --install-dir /usr/local/bin
+          component/usr/bin/static-cli-install --tool actionlint --no-attest --no-vt --install-dir /usr/local/bin
 
       - name: Run dist-ai suites for this component
         env:
