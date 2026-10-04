@@ -99,15 +99,9 @@ jobs:
       ## succeeds. Narrower than '--privileged', which also grants every
       ## other capability plus raw device access.
       ##
-      ## seccomp=unconfined: SYS_ADMIN is root's; a suite whose subject is an
-      ## UNPRIVILEGED user+mount namespace (qube-ctl's tmpdir budget) runs as the
-      ## non-root build user, whose unshare(CLONE_NEWUSER) Docker's DEFAULT seccomp
-      ## profile blocks regardless of the container's caps -- unconfining seccomp
-      ## is the only way to exercise that path in the container.
-      ##
-      ## Scope: the fork-PR guard below means only same-repo code reaches this
-      ## job, so no untrusted contributor payload runs with these relaxations.
-      options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined --security-opt=seccomp=unconfined
+      ## Scope: the fork-PR guard below means only same-repo code reaches
+      ## this job, so no untrusted contributor payload runs with it.
+      options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined
     timeout-minutes: ${{ inputs.timeout-minutes }}
     ## Fork-PR guard: forked PRs need maintainer review before consuming
     ## CI time. Same guard as the other reusables (agents/security.md).
