@@ -35,11 +35,21 @@ if [[ "${review_spec}" == -* ]]; then
    die 2 "ref '${review_spec}' must not start with '-'."
 fi
 
-## Don't allow the use of '--' as it could cause options to be misinterpreted
-## by the various Git tools.
+## Every forwarded argument must be a git-diff OPTION in attached-value form
+## (--opt=value, -oVALUE), never a bare token. The ref-or-range is this script's
+## to supply (passed to the review tools FIRST, below); a bare forwarded token
+## would be read by git as an extra revision, or -- if it matches a path -- as a
+## PATHSPEC, silently filtering the displayed diff down to nothing while the
+## up-front scan reported on the full range. '--' is a dash token so the bare
+## check below misses it, and it introduces pathspecs directly, so reject it on
+## its own. A space-separated operand (--stat-width 120) must be given attached
+## (--stat-width=120); its bare value would otherwise look like such a token.
 for review_opt in "${review_opts[@]}"; do
    if [ "${review_opt}" = '--' ]; then
-      die 2 "'--' is not a valid option here, ref-or-range is always the last argument."
+      die 2 "'--' is not a valid option here; forwarded arguments must be git-diff options, not a pathspec separator."
+   fi
+   if [[ "${review_opt}" != -* ]]; then
+      die 2 "forwarded argument '${review_opt}' must be a git-diff option in attached-value form (e.g. --opt=value); a bare argument would be read as a pathspec or extra revision and silently empty the review."
    fi
 done
 
@@ -127,10 +137,17 @@ review_range="${base_commit}..${target_commit}"
 
 git --no-pager log "${review_range}" | NO_COLOR=1 stcat
 
-git-diff-review "${review_opts[@]}" "${review_range}"
+## Pass the resolved range FIRST, before the forwarded options. A forwarded
+## option that takes an operand (e.g. --word-diff-regex, --src-prefix, --output)
+## would otherwise consume a trailing range and leave git diffing the clean
+## worktree -- an empty, exit-0 review of unscanned content; a stray ref would
+## become a second revision. With the range ahead of every option, git has its
+## revisions fixed and FAILS CLOSED (non-zero) on both, so the displayed diff
+## always matches the range check-ref-commits-for-unicode scanned.
+git-diff-review "${review_range}" "${review_opts[@]}"
 
-git-meld "${review_opts[@]}" "${review_range}"
+git-meld "${review_range}" "${review_opts[@]}"
 
-git-kdiff3 "${review_opts[@]}" "${review_range}"
+git-kdiff3 "${review_range}" "${review_opts[@]}"
 
 true "$0: OK."
