@@ -240,6 +240,22 @@ jobs:
           # and actionlint's shellcheck pass reports SC2086 anyway.)
           apt-get install --yes --no-install-recommends ${APT_PACKAGES}
 
+      - name: Install static-analysis CLIs (zizmor, actionlint)
+        if: steps.cfg.outputs.static_analysis_tools == 'true'
+        ## Neither tool is Debian-packaged, so the apt step above cannot carry
+        ## them; the component ships a pinned installer (static-cli-install) that
+        ## downloads an exact version and verifies it against a committed sha256,
+        ## computed locally from the asset (never read off a web page). The gate
+        ## logic stays in the component's committed script, not inline here.
+        ## --no-attest --no-vt: a bare CI container cannot run the stronger SLSA /
+        ## VirusTotal checks -- the attestations API 403s without a GitHub token
+        ## and CI has no VT key -- so the committed sha256 pin is the integrity
+        ## anchor here (the maintainer re-verifies SLSA when bumping a pin). Needs
+        ## 'helper-scripts: true' (the installer sources it), opted in alongside.
+        run: |
+          component/usr/bin/static-cli-install --tool zizmor --no-attest --no-vt --install-dir /usr/local/bin
+          component/usr/bin/static-cli-install --tool actionlint --no-attest --no-vt --install-dir /usr/local/bin
+
       - name: Run dist-ai suites for this component
         env:
           HS_ARG: ${{ steps.cfg.outputs.hs_arg }}

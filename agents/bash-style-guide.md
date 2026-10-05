@@ -95,11 +95,15 @@ with no explanatory comment.
 
 A test that drives a script's functions must be able to `source` it
 without running it or leaking strict-mode into the test shell. Such a
-script sources `check_runtime.bsh`, keeps its strict-mode block and its
+script guards its `source` of `check_runtime.bsh` (fail loud with a named
+error on a bad `HELPER_SCRIPTS_PATH`), keeps its strict-mode block and its
 `main "$@"` call each behind `if was_executed "${BASH_SOURCE[0]}"`, and
 moves its former top-level logic into `main()`:
 
-    source /usr/libexec/helper-scripts/check_runtime.bsh
+    if ! source /usr/libexec/helper-scripts/check_runtime.bsh ; then
+       printf '%s\n' "$0: ERROR: cannot source check_runtime.bsh!" >&2
+       exit 1
+    fi
 
     if was_executed "${BASH_SOURCE[0]}"; then
        set -o errexit
