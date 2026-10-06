@@ -91,21 +91,24 @@ jobs:
       ## container can neither mount nor create a user namespace, so those
       ## assertions cannot run at all.
       ##
-      ## All three are required and none alone suffices: CAP_SYS_ADMIN
-      ## carries the privilege, Docker's default AppArmor profile denies
-      ## mount(2) regardless of capabilities, and Docker's default seccomp
-      ## profile denies the pivot_root(2) that bubblewrap uses to build a
-      ## mount namespace. Measured on debian:trixie-slim -- '--cap-add=SYS_ADMIN'
-      ## alone and '--security-opt=apparmor=unconfined' alone fail mount(2); and
-      ## with both, bwrap still fails 'pivot_root: Operation not permitted' until
-      ## '--security-opt=seccomp=unconfined' is added. Needed so the isolated
-      ## scenario tests (run_check_scenario_isolated) actually RUN rather than
-      ## SkipTest -- a silent-green gap. Narrower than '--privileged', which also
-      ## grants every other capability plus raw device access.
+      ## Both halves are required and neither alone suffices: CAP_SYS_ADMIN
+      ## carries the privilege, and Docker's default AppArmor profile denies
+      ## mount(2) regardless of capabilities. Measured on debian:trixie-slim
+      ## -- default, '--cap-add=SYS_ADMIN' alone and
+      ## '--security-opt=apparmor=unconfined' alone all fail; the pair
+      ## succeeds. Narrower than '--privileged', which also grants every
+      ## other capability plus raw device access.
+      ##
+      ## NOT seccomp=unconfined: SYS_ADMIN already allowlists unshare in Docker's
+      ## default seccomp, and the GHA runner's bwrap/userns block is the kernel's
+      ## apparmor_restrict_unprivileged_userns LSM (seccomp cannot touch it), so it
+      ## would only add escape surface for no benefit. bwrap/userns suites are
+      ## CI-infra-impossible here and SkipTest. (A sandbox-docker repro that showed
+      ## seccomp unblocking pivot_root does NOT reflect the GHA runner's LSM.)
       ##
       ## Scope: the fork-PR guard below means only same-repo code reaches
       ## this job, so no untrusted contributor payload runs with it.
-      options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined --security-opt=seccomp=unconfined
+      options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined
     timeout-minutes: ${{ inputs.timeout-minutes }}
     ## Fork-PR guard: forked PRs need maintainer review before consuming
     ## CI time. Same guard as the other reusables (agents/security.md).
