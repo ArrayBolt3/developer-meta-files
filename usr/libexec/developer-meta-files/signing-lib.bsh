@@ -62,11 +62,15 @@ verify_cmd_signify() {
    signify-openbsd -V -p "${signify_public_key}" -m "$1" -x "$2"
 }
 
-## OpenPGP-only sign + verify: for every published file (image, torrent,
-## buildinfo). No file-size limit.
+## OpenPGP-only sign + verify. No file-size limit. The safe DEFAULT for a file
+## that may be huge (disk image, Windows installer, source archive).
 sign_and_verify() {
    sign_cmd_openpgp "${1}" "${1}.asc" || return
    verify_cmd_openpgp "${1}" "${1}.asc" || return
+   ## This path produces NO signify '.sig'. Delete any stale one (e.g. from an
+   ## earlier build, or planted) so a signature that does NOT match this file can
+   ## never be published alongside it.
+   safe-rm -f -- "${1}.sig" || return
 }
 
 ## OpenPGP + signify sign + verify: for a SMALL artifact only (never a huge

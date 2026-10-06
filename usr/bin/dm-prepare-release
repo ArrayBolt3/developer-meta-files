@@ -546,55 +546,69 @@ Please donate! [C]
 
 
 signatures_create() {
-   local var_names file_list upload_url_part target_names
+   local var_names file_list upload_url_part target_names signify_main
    var_names=()
    file_list=()
    upload_url_part=()
    ## Derivative target per artifact for the reproducibility buildinfo; empty =
    ## no buildinfo (installer / windows / source are not reproducible-image targets).
    target_names=()
+   ## Whether the MAIN artifact also gets a signify '.sig'. true ONLY for an
+   ## artifact KNOWN to be small with its own signify verification story
+   ## (dist-installer-cli). Disk images, the Windows installer (embeds the OVA)
+   ## and the source archive can be huge -- signify reads the whole file into RAM
+   ## and OOMs, so they get OpenPGP only. The small sidecars (torrent, sha512sums,
+   ## buildinfo) are always signify-signed below.
+   signify_main=()
 
    if [ "${dist_build_virtualbox:-}" = "true" ]; then
       var_names+=("binary_image_ova_file")
       file_list+=("${binary_image_ova_file}")
       upload_url_part+=("ova")
       target_names+=("virtualbox")
+      signify_main+=("false")
    fi
    if [ "${dist_build_raw:-}" = "true" ]; then
       var_names+=("libvirt_target_raw_xz_archive_file")
       file_list+=("${libvirt_target_raw_xz_archive_file}")
       upload_url_part+=("raw")
       target_names+=("raw")
+      signify_main+=("false")
    fi
    if [ "${dist_build_qcow2:-}" = "true" ]; then
       var_names+=("libvirt_target_qcow2_xz_archive_file")
       file_list+=("${libvirt_target_qcow2_xz_archive_file}")
       upload_url_part+=("libvirt")
       target_names+=("qcow2")
+      signify_main+=("false")
    fi
    if [ "${dist_build_iso:-}" = "true" ]; then
       var_names+=("binary_image_iso_file")
       file_list+=("${binary_image_iso_file}")
       upload_url_part+=("iso")
       target_names+=("iso")
+      signify_main+=("false")
    fi
    if [ "${dist_build_installer_dist:-}" = "true" ]; then
       var_names+=("binary_image_installer_dist_file")
       file_list+=("${binary_image_installer_dist_file}")
       upload_url_part+=("dist-installer-cli")
       target_names+=("")
+      signify_main+=("true")
    fi
    if [ "${dist_build_windows_installer:-}" = "true" ]; then
       var_names+=("binary_image_windows_installer_file")
       file_list+=("${binary_image_windows_installer_file}")
       upload_url_part+=("windows")
       target_names+=("")
+      signify_main+=("false")
    fi
    if [ "${dist_build_source_archive:-}" = "true" ]; then
       var_names+=("source_archive_xz_file")
       file_list+=("${source_archive_xz_file}")
       upload_url_part+=("source")
       target_names+=("")
+      signify_main+=("false")
    fi
 
    ## Thanks to:
@@ -644,18 +658,18 @@ signatures_create() {
       sha512sum -- "${base_name}" | tee -- "${file_item}.sha512sums" >/dev/null
       sha512sum --check -- "${file_item}.sha512sums"
 
-      ## A non-empty target marks a huge reproducible DISK IMAGE: it gets OpenPGP
-      ## only, because signify reads the whole file into RAM and OOMs on it. Every
-      ## small artifact (torrent, sha512sums, buildinfo, dist-installer-cli, ...)
-      ## also gets a signify '.sig'. The image is authenticated transitively by
-      ## its signify-signed '.sha512sums'.
+      ## The main artifact gets signify ONLY when known small (signify_main);
+      ## otherwise OpenPGP only, because signify reads the whole file into RAM and
+      ## OOMs on a huge image / Windows installer / source archive. The small
+      ## sidecars are always signify-signed; a huge image is authenticated
+      ## transitively by its signify-signed '.sha512sums'.
       local dm_target_item
       dm_target_item="${target_names[i]}"
 
-      if [ -n "${dm_target_item}" ]; then
-         sign_and_verify "${file_item}"
-      else
+      if [ "${signify_main[i]}" = "true" ]; then
          sign_and_verify_signify "${file_item}"
+      else
+         sign_and_verify "${file_item}"
       fi
       sign_and_verify_signify "${file_item}.torrent"
       sign_and_verify_signify "${file_item}.sha512sums"
