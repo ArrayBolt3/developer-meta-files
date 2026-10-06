@@ -2770,6 +2770,13 @@ pkg_need_version_bump_and_pkg_build_and_reprepro_add() {
    #   return 0
    #fi
 
+   ## Regenerate every pass so a lone source edit cannot leave committed
+   ## output stale. Both commit scoped and no-op when unchanged, so a real
+   ## change lands before the bump decision below and a quiet package stays
+   ## quiet.
+   pkg_git_manpages
+   pkg_git_debinstfile
+
    ## sets: batch_current_package_needs_version_bump
    pkg_need_version_bump_show
 
@@ -2779,8 +2786,6 @@ pkg_need_version_bump_and_pkg_build_and_reprepro_add() {
 
    true "INFO: ${FUNCNAME[0]}: needs version bump: ${batch_current_package_reponame}"
 
-   pkg_git_manpages
-   pkg_git_debinstfile
    ## TODO
    #pkg_readme_creator_do
    #pkg_readme_creator_commit
