@@ -11,12 +11,17 @@
 ##   DEBEMAIL              OpenPGP signer email
 ##   signify_public_key    signify public key path (verify)
 ##   signify_private_key   signify secret key path (sign)
-## and provide 'safe-rm', 'sq', 'signify-openbsd', 'bc' on PATH.
+## and provide 'safe-rm', 'sq', 'signify-openbsd' on PATH.
 ##
-## The signify functions intentionally SKIP files >= 1000 MB, as signify cannot
-## handle big files. Such files are covered an OpenPGP '.asc' plus the
-## signed '.sha512sums'. 'file_size_mb' is set by sign_and_verify /
-## verify_signature before the per-scheme helpers run.
+## Scheme:
+##   - OpenPGP ('.asc') authenticates EVERY published file. 'sq' streams, so
+##     there is no file-size limit.
+##   - signify ('.sig') authenticates every SMALL artifact, but NEVER a huge
+##     disk image: signify reads the whole file into RAM and OOMs on a multi-
+##     hundred-MB image. The image is authenticated transitively by its signed
+##     '.sha512sums'. The OpenPGP-only 'sign_and_verify' is the safe DEFAULT;
+##     callers add signify explicitly via 'sign_and_verify_signify' for a file
+##     known to be small.
 
 ## style-ok: no-strict -- a sourced library.
 
@@ -34,20 +39,6 @@ sign_cmd_openpgp() {
    test -f "$2"
 }
 
-sign_cmd_signify() {
-   ## To create a key for signify-openbsd, see:
-   ## derivative-maker help-steps/signing-key-create
-
-   ## Big file are unfortunately unsupported by signify.
-   if [ "${file_size_mb}" -ge "1000" ]; then
-      return 0
-   fi
-   ## https://forums.whonix.org/t/signify-openbsd/7842
-   signify-openbsd -S -s "${signify_private_key}" -m "$1" -x "$2"
-   ## Sanity test.
-   test -f "$2"
-}
-
 verify_cmd_openpgp() {
    test -f "$1"
    test -f "$2"
@@ -55,34 +46,44 @@ verify_cmd_openpgp() {
    sq verify --signer-email "${DEBEMAIL}" --signature-file="$2" -- "$1"
 }
 
+sign_cmd_signify() {
+   ## To create a key for signify-openbsd, see:
+   ## derivative-maker help-steps/signing-key-create
+   ## https://forums.whonix.org/t/signify-openbsd/7842
+   ##
+   ## Callers MUST restrict this to small files (the '.sha512sums'); signify
+   ## reads the entire file into RAM.
+   signify-openbsd -S -s "${signify_private_key}" -m "$1" -x "$2"
+   ## Sanity test.
+   test -f "$2"
+}
+
 verify_cmd_signify() {
-   if [ "${file_size_mb}" -ge "1000" ]; then
-      return 0
-   fi
    signify-openbsd -V -p "${signify_public_key}" -m "$1" -x "$2"
 }
 
-## Set file_size_mb from a file (shared by sign_and_verify / verify_signature).
-signing_lib_set_file_size_mb() {
-   local file_size_bytes
-   file_size_bytes=$(stat -c%s "$1")
-   # Convert bytes to megabytes
-   file_size_mb=$(printf '%s\n' "scale=0; ${file_size_bytes} / 1024 / 1024" | bc)
-}
-
+## OpenPGP-only sign + verify: for every published file (image, torrent,
+## buildinfo). No file-size limit.
 sign_and_verify() {
-   signing_lib_set_file_size_mb "$1" || return
    sign_cmd_openpgp "${1}" "${1}.asc" || return
    verify_cmd_openpgp "${1}" "${1}.asc" || return
+}
+
+## OpenPGP + signify sign + verify: for a SMALL artifact only (never a huge
+## disk image). signify reads the whole file into RAM.
+sign_and_verify_signify() {
+   sign_and_verify "${1}" || return
    sign_cmd_signify "${1}" "${1}.sig" || return
    verify_cmd_signify "${1}" "${1}.sig" || return
 }
 
-## Verify-only counterpart for a downstream verifier: check an already-published
-## file against its sibling '.asc' (+ '.sig' when the file is small enough to
-## have been signify-signed).
+## Verify-only counterpart for a downstream verifier: OpenPGP ('.asc') only.
 verify_signature() {
-   signing_lib_set_file_size_mb "$1" || return
    verify_cmd_openpgp "${1}" "${1}.asc" || return
+}
+
+## Verify-only counterpart for a small artifact: OpenPGP + signify.
+verify_signature_signify() {
+   verify_signature "${1}" || return
    verify_cmd_signify "${1}" "${1}.sig" || return
 }

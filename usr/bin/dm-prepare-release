@@ -644,17 +644,26 @@ signatures_create() {
       sha512sum -- "${base_name}" | tee -- "${file_item}.sha512sums" >/dev/null
       sha512sum --check -- "${file_item}.sha512sums"
 
-      sign_and_verify "${file_item}"
-      sign_and_verify "${file_item}.torrent"
-      sign_and_verify "${file_item}.sha512sums"
-
-      ## Reproducibility buildinfo: record the parameters needed to rebuild this
-      ## image, published next to it and signed by the SAME sign_and_verify.
+      ## A non-empty target marks a huge reproducible DISK IMAGE: it gets OpenPGP
+      ## only, because signify reads the whole file into RAM and OOMs on it. Every
+      ## small artifact (torrent, sha512sums, buildinfo, dist-installer-cli, ...)
+      ## also gets a signify '.sig'. The image is authenticated transitively by
+      ## its signify-signed '.sha512sums'.
       local dm_target_item
       dm_target_item="${target_names[i]}"
+
+      if [ -n "${dm_target_item}" ]; then
+         sign_and_verify "${file_item}"
+      else
+         sign_and_verify_signify "${file_item}"
+      fi
+      sign_and_verify_signify "${file_item}.torrent"
+      sign_and_verify_signify "${file_item}.sha512sums"
+
+      ## Reproducibility buildinfo: small, OpenPGP + signify.
       if [ -n "${dm_target_item}" ]; then
          "${dist_developer_meta_files_folder}/usr/bin/dm-reproducible-buildinfo" --target "${dm_target_item}" --image "${file_item}"
-         sign_and_verify "${file_item}.dm-buildinfo"
+         sign_and_verify_signify "${file_item}.dm-buildinfo"
       fi
    done
 }
