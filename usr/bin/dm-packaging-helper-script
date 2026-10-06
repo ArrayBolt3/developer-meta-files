@@ -2161,7 +2161,9 @@ pkg_git_manpages() {
    msg='re-generate man pages (generated using "genmkfile manpages")'
    dry_run_or_run git add -- 'man'/* || true
    dry_run_or_run git add -- 'auto-generated-man-pages'/* || true
-   dry_run_or_run git commit -m "${msg}" || true
+   ## Pathspec-scoped: an unconditional every-pass commit must not sweep a
+   ## sibling's unrelated staged change into this generated-file commit.
+   dry_run_or_run git commit -m "${msg}" -- 'man' 'auto-generated-man-pages' || true
    dry_run_or_run git status
    return 0
 }
@@ -2180,7 +2182,8 @@ pkg_git_debinstfile() {
    msg='add debian install file (generated using "genmkfile debinstfile")'
    printf '%s\n' "PWD: '${PWD}'"
    dry_run_or_run git add -- "debian/${batch_current_package_reponame}.install" || true
-   dry_run_or_run git commit -m "${msg}" || true
+   ## Pathspec-scoped: see pkg_git_manpages.
+   dry_run_or_run git commit -m "${msg}" -- "debian/${batch_current_package_reponame}.install" || true
    dry_run_or_run git status
    return 0
 }
