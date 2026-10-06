@@ -7,33 +7,17 @@
 ## (this tool runs early and does not source helper-scripts' has.bsh).
 ## style-ok: no-has
 
-set -x
-set -o errexit
-set -o nounset
-set -o pipefail
-set -o errtrace
-shopt -s inherit_errexit
-shopt -s shift_verbose
-export LC_ALL=C
-
-true "INFO: Currently running script: ${BASH_SOURCE[0]} $*"
-
 MYDIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 
-## variables (sourced below) reassigns MYDIR; capture the dirs we need first.
-dmf_libexec_dir="${MYDIR}/../libexec/developer-meta-files"
-
-# shellcheck source=../libexec/developer-meta-files/source-tree-lib.bsh
-source "${dmf_libexec_dir}/source-tree-lib.bsh"
-derivative_maker_source_tree_resolve "${MYDIR}" || exit 1
-
-source "${derivative_maker_source_code_dir}/help-steps/pre"
-source "${derivative_maker_source_code_dir}/help-steps/variables"
-
-# shellcheck source=../libexec/developer-meta-files/signing-lib.bsh
-source "${dmf_libexec_dir}/signing-lib.bsh"
-
-cd -- "${dist_binary_build_folder}"
+## provides was_executed. Resolve check_runtime.bsh via HELPER_SCRIPTS_PATH (set
+## by help-steps/pre and by tests) or, unset, the in-source-tree sibling package
+## -- the same 'helper-scripts' this tool already requires via help-steps/pre.
+# shellcheck source=../../../helper-scripts/usr/libexec/helper-scripts/check_runtime.bsh
+source "${HELPER_SCRIPTS_PATH:-${MYDIR}/../../../helper-scripts}/usr/libexec/helper-scripts/check_runtime.bsh" || true
+if ! declare -F was_executed >/dev/null; then
+   printf '%s\n' "$0: ERROR: cannot source check_runtime.bsh!" >&2
+   exit 1
+fi
 
 sanity_tests() {
    command -v -- mktorrent >/dev/null
@@ -694,6 +678,32 @@ legal_files_copy() {
 }
 
 main() {
+   set -x
+   set -o errexit
+   set -o nounset
+   set -o pipefail
+   set -o errtrace
+   shopt -s inherit_errexit
+   shopt -s shift_verbose
+   export LC_ALL=C
+
+   true "INFO: Currently running script: ${BASH_SOURCE[0]} $*"
+
+   ## variables (sourced below) reassigns MYDIR; capture the dirs we need first.
+   dmf_libexec_dir="${MYDIR}/../libexec/developer-meta-files"
+
+   # shellcheck source=../libexec/developer-meta-files/source-tree-lib.bsh
+   source "${dmf_libexec_dir}/source-tree-lib.bsh"
+   derivative_maker_source_tree_resolve "${MYDIR}" || exit 1
+
+   source "${derivative_maker_source_code_dir}/help-steps/pre"
+   source "${derivative_maker_source_code_dir}/help-steps/variables"
+
+   # shellcheck source=../libexec/developer-meta-files/signing-lib.bsh
+   source "${dmf_libexec_dir}/signing-lib.bsh"
+
+   cd -- "${dist_binary_build_folder}"
+
    if [ "${dist_build_utm:-}" = "true" ]; then
       true "dist_build_utm: true"
       true "INFO: Skipping ${FUNCNAME[0]}, because not implemented for UTM."
@@ -715,4 +725,7 @@ main() {
    sync
 }
 
-main "$@"
+## Only auto-run when executed, not when sourced (unit tests source it).
+if was_executed "${BASH_SOURCE[0]}"; then
+   main "$@"
+fi
