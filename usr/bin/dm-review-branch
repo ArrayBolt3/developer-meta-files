@@ -53,6 +53,13 @@ for review_opt in "${review_opts[@]}"; do
    fi
 done
 
+## SCOPE: this rejects bare tokens and value-consuming trailing options, but does
+## NOT vet dash-OPTIONS that filter/suppress the diff (--no-patch, --relative=,
+## --diff-filter=) or disable the neutralizing external-diff driver (--no-ext-diff);
+## any of those can still produce an empty or un-neutralized review. Fully closing
+## that needs a review-safe-option allowlist (reject scope/output/driver-altering
+## options) -- deferred as a maintainer decision on the review-safe option set.
+
 ## Allow both ranges ('..') and merge-base ranges ('...').
 if [[ "${review_spec}" == *...* ]]; then
    range_op='...'
