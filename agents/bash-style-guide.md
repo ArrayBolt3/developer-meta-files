@@ -95,12 +95,16 @@ with no explanatory comment.
 
 A test that drives a script's functions must be able to `source` it
 without running it or leaking strict-mode into the test shell. Such a
-script guards its `source` of `check_runtime.bsh` (fail loud with a named
-error on a bad `HELPER_SCRIPTS_PATH`), keeps its strict-mode block and its
-`main "$@"` call each behind `if was_executed "${BASH_SOURCE[0]}"`, and
-moves its former top-level logic into `main()`:
+script sources `check_runtime.bsh` then asserts the POSTCONDITION that
+`was_executed` is defined (fail loud with a named error on a bad
+`HELPER_SCRIPTS_PATH`) -- checking the function's presence, not `source`'s
+exit status, so a truncated lib that sources cleanly yet defines nothing
+is still caught. It keeps its strict-mode block and its `main "$@"` call
+each behind `if was_executed "${BASH_SOURCE[0]}"`, and moves its former
+top-level logic into `main()`:
 
-    if ! source /usr/libexec/helper-scripts/check_runtime.bsh ; then
+    source "${HELPER_SCRIPTS_PATH:-}"/usr/libexec/helper-scripts/check_runtime.bsh || true
+    if ! declare -F was_executed >/dev/null; then
        printf '%s\n' "$0: ERROR: cannot source check_runtime.bsh!" >&2
        exit 1
     fi
