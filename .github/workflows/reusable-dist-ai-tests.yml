@@ -99,6 +99,13 @@ jobs:
       ## succeeds. Narrower than '--privileged', which also grants every
       ## other capability plus raw device access.
       ##
+      ## NOT seccomp=unconfined: SYS_ADMIN already allowlists unshare in Docker's
+      ## default seccomp, and the GHA runner's bwrap/userns block is the kernel's
+      ## apparmor_restrict_unprivileged_userns LSM (seccomp cannot touch it), so it
+      ## would only add escape surface for no benefit. bwrap/userns suites are
+      ## CI-infra-impossible here and SkipTest. (A sandbox-docker repro that showed
+      ## seccomp unblocking pivot_root does NOT reflect the GHA runner's LSM.)
+      ##
       ## Scope: the fork-PR guard below means only same-repo code reaches
       ## this job, so no untrusted contributor payload runs with it.
       options: --cap-add=SYS_ADMIN --security-opt=apparmor=unconfined

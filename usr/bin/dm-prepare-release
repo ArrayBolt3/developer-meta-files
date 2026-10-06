@@ -7,33 +7,17 @@
 ## (this tool runs early and does not source helper-scripts' has.bsh).
 ## style-ok: no-has
 
-set -x
-set -o errexit
-set -o nounset
-set -o pipefail
-set -o errtrace
-shopt -s inherit_errexit
-shopt -s shift_verbose
-export LC_ALL=C
-
-true "INFO: Currently running script: ${BASH_SOURCE[0]} $*"
-
 MYDIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 
-## variables (sourced below) reassigns MYDIR; capture the dirs we need first.
-dmf_libexec_dir="${MYDIR}/../libexec/developer-meta-files"
-
-# shellcheck source=../libexec/developer-meta-files/source-tree-lib.bsh
-source "${dmf_libexec_dir}/source-tree-lib.bsh"
-derivative_maker_source_tree_resolve "${MYDIR}" || exit 1
-
-source "${derivative_maker_source_code_dir}/help-steps/pre"
-source "${derivative_maker_source_code_dir}/help-steps/variables"
-
-# shellcheck source=../libexec/developer-meta-files/signing-lib.bsh
-source "${dmf_libexec_dir}/signing-lib.bsh"
-
-cd -- "${dist_binary_build_folder}"
+## provides was_executed. Resolve check_runtime.bsh via HELPER_SCRIPTS_PATH (set
+## by help-steps/pre and by tests) or, unset, the in-source-tree sibling package
+## -- the same 'helper-scripts' this tool already requires via help-steps/pre.
+# shellcheck source=../../../helper-scripts/usr/libexec/helper-scripts/check_runtime.bsh
+source "${HELPER_SCRIPTS_PATH:-${MYDIR}/../../../helper-scripts}/usr/libexec/helper-scripts/check_runtime.bsh" || true
+if ! declare -F was_executed >/dev/null; then
+   printf '%s\n' "$0: ERROR: cannot source check_runtime.bsh!" >&2
+   exit 1
+fi
 
 sanity_tests() {
    command -v -- mktorrent >/dev/null
@@ -546,55 +530,69 @@ Please donate! [C]
 
 
 signatures_create() {
-   local var_names file_list upload_url_part target_names
+   local var_names file_list upload_url_part target_names signify_main
    var_names=()
    file_list=()
    upload_url_part=()
    ## Derivative target per artifact for the reproducibility buildinfo; empty =
    ## no buildinfo (installer / windows / source are not reproducible-image targets).
    target_names=()
+   ## Whether the MAIN artifact also gets a signify '.sig'. true ONLY for an
+   ## artifact KNOWN to be small with its own signify verification story
+   ## (dist-installer-cli). Disk images, the Windows installer (embeds the OVA)
+   ## and the source archive can be huge -- signify reads the whole file into RAM
+   ## and OOMs, so they get OpenPGP only. The small sidecars (torrent, sha512sums,
+   ## buildinfo) are always signify-signed below.
+   signify_main=()
 
    if [ "${dist_build_virtualbox:-}" = "true" ]; then
       var_names+=("binary_image_ova_file")
       file_list+=("${binary_image_ova_file}")
       upload_url_part+=("ova")
       target_names+=("virtualbox")
+      signify_main+=("false")
    fi
    if [ "${dist_build_raw:-}" = "true" ]; then
       var_names+=("libvirt_target_raw_xz_archive_file")
       file_list+=("${libvirt_target_raw_xz_archive_file}")
       upload_url_part+=("raw")
       target_names+=("raw")
+      signify_main+=("false")
    fi
    if [ "${dist_build_qcow2:-}" = "true" ]; then
       var_names+=("libvirt_target_qcow2_xz_archive_file")
       file_list+=("${libvirt_target_qcow2_xz_archive_file}")
       upload_url_part+=("libvirt")
       target_names+=("qcow2")
+      signify_main+=("false")
    fi
    if [ "${dist_build_iso:-}" = "true" ]; then
       var_names+=("binary_image_iso_file")
       file_list+=("${binary_image_iso_file}")
       upload_url_part+=("iso")
       target_names+=("iso")
+      signify_main+=("false")
    fi
    if [ "${dist_build_installer_dist:-}" = "true" ]; then
       var_names+=("binary_image_installer_dist_file")
       file_list+=("${binary_image_installer_dist_file}")
       upload_url_part+=("dist-installer-cli")
       target_names+=("")
+      signify_main+=("true")
    fi
    if [ "${dist_build_windows_installer:-}" = "true" ]; then
       var_names+=("binary_image_windows_installer_file")
       file_list+=("${binary_image_windows_installer_file}")
       upload_url_part+=("windows")
       target_names+=("")
+      signify_main+=("false")
    fi
    if [ "${dist_build_source_archive:-}" = "true" ]; then
       var_names+=("source_archive_xz_file")
       file_list+=("${source_archive_xz_file}")
       upload_url_part+=("source")
       target_names+=("")
+      signify_main+=("false")
    fi
 
    ## Thanks to:
@@ -644,17 +642,26 @@ signatures_create() {
       sha512sum -- "${base_name}" | tee -- "${file_item}.sha512sums" >/dev/null
       sha512sum --check -- "${file_item}.sha512sums"
 
-      sign_and_verify "${file_item}"
-      sign_and_verify "${file_item}.torrent"
-      sign_and_verify "${file_item}.sha512sums"
-
-      ## Reproducibility buildinfo: record the parameters needed to rebuild this
-      ## image, published next to it and signed by the SAME sign_and_verify.
+      ## The main artifact gets signify ONLY when known small (signify_main);
+      ## otherwise OpenPGP only, because signify reads the whole file into RAM and
+      ## OOMs on a huge image / Windows installer / source archive. The small
+      ## sidecars are always signify-signed; a huge image is authenticated
+      ## transitively by its signify-signed '.sha512sums'.
       local dm_target_item
       dm_target_item="${target_names[i]}"
+
+      if [ "${signify_main[i]}" = "true" ]; then
+         sign_and_verify_signify "${file_item}"
+      else
+         sign_and_verify "${file_item}"
+      fi
+      sign_and_verify_signify "${file_item}.torrent"
+      sign_and_verify_signify "${file_item}.sha512sums"
+
+      ## Reproducibility buildinfo: small, OpenPGP + signify.
       if [ -n "${dm_target_item}" ]; then
          "${dist_developer_meta_files_folder}/usr/bin/dm-reproducible-buildinfo" --target "${dm_target_item}" --image "${file_item}"
-         sign_and_verify "${file_item}.dm-buildinfo"
+         sign_and_verify_signify "${file_item}.dm-buildinfo"
       fi
    done
 }
@@ -671,6 +678,32 @@ legal_files_copy() {
 }
 
 main() {
+   set -x
+   set -o errexit
+   set -o nounset
+   set -o pipefail
+   set -o errtrace
+   shopt -s inherit_errexit
+   shopt -s shift_verbose
+   export LC_ALL=C
+
+   true "INFO: Currently running script: ${BASH_SOURCE[0]} $*"
+
+   ## variables (sourced below) reassigns MYDIR; capture the dirs we need first.
+   dmf_libexec_dir="${MYDIR}/../libexec/developer-meta-files"
+
+   # shellcheck source=../libexec/developer-meta-files/source-tree-lib.bsh
+   source "${dmf_libexec_dir}/source-tree-lib.bsh"
+   derivative_maker_source_tree_resolve "${MYDIR}" || exit 1
+
+   source "${derivative_maker_source_code_dir}/help-steps/pre"
+   source "${derivative_maker_source_code_dir}/help-steps/variables"
+
+   # shellcheck source=../libexec/developer-meta-files/signing-lib.bsh
+   source "${dmf_libexec_dir}/signing-lib.bsh"
+
+   cd -- "${dist_binary_build_folder}"
+
    if [ "${dist_build_utm:-}" = "true" ]; then
       true "dist_build_utm: true"
       true "INFO: Skipping ${FUNCNAME[0]}, because not implemented for UTM."
@@ -692,4 +725,7 @@ main() {
    sync
 }
 
-main "$@"
+## Only auto-run when executed, not when sourced (unit tests source it).
+if was_executed "${BASH_SOURCE[0]}"; then
+   main "$@"
+fi
