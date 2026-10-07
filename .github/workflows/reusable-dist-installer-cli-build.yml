@@ -71,7 +71,10 @@ jobs:
       matrix:
         image: ${{ fromJSON(inputs.images) }}
     container:
-      image: ${{ matrix.image }}
+      ## The matrix is deliberately the CURRENT distro tags (debian:stable,
+      ## fedora:41, ...); the lane's purpose is to test the installer against
+      ## today's images, so SHA-pinning them is wrong here.
+      image: ${{ matrix.image }}  # zizmor: ignore[unpinned-images]
     env:
       ## dist-ai's build scripts and the installer-run steps resolve the consumer
       ## standalone here; the component is checked out under 'component/'.
@@ -152,7 +155,9 @@ jobs:
       - name: Run VirtualBox Installer - back to default repository
         run: dist-ai/ci/dist-installer-cli-build/vbox-back-to-default-repo.sh
       - name: Run VirtualBox Installer - back to default repository - Clearnet
-        run: sudo -u user -- "${DIST_INSTALLER_CLI_STANDALONE}" --non-interactive --log-level=debug --no-boot --dev --ci --virtualbox-only --onion
+        ## Clearnet (no --onion): exercises the default-repo clearnet reinstall the
+        ## step name promises -- the onion variant ran above.
+        run: sudo -u user -- "${DIST_INSTALLER_CLI_STANDALONE}" --non-interactive --log-level=debug --no-boot --dev --ci --virtualbox-only
       - name: Run with non-English locale - Clearnet
         run: sudo -u user -- env LC_ALL=ru_RU.UTF-8 LANG=ru_RU.UTF-8 LANGUAGE=ru_RU "${DIST_INSTALLER_CLI_STANDALONE}" --non-interactive --log-level=debug --no-boot --dev --ci --import-only=both --destroy-existing-guest
       ## When 'source'd the script must exit in under a second (it must do no real
