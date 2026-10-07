@@ -192,12 +192,25 @@ jobs:
           ## submodules, and recursing multiplies the checkout for no coverage.
           git submodule update --init
 
+      - name: Resolve helper-scripts ref (companion branch, else master)
+        id: resolve_helper_scripts
+        if: steps.cfg.outputs.helper_scripts == 'true'
+        ## Same companion-branch resolution as dist-ai above (the action takes the
+        ## companion repo as an input). A coordinated helper-scripts (library) +
+        ## consumer change on one branch name is then tested together, instead of
+        ## the consumer running against helper-scripts@master -- which lacks the
+        ## branch's library changes and yields a false red (e.g. a standalone
+        ## regenerated from the branch's helper-scripts vs a master regen).
+        uses: org-ai-assisted/developer-meta-files/.github/actions/resolve-dist-ai-ref@master
+        with:
+          repo: org-ai-assisted/helper-scripts
+
       - name: Checkout helper-scripts (for suites that drive its tools)
         if: steps.cfg.outputs.helper_scripts == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: org-ai-assisted/helper-scripts
-          ref: master
+          ref: ${{ steps.resolve_helper_scripts.outputs.ref }}
           path: helper-scripts
           persist-credentials: false
 
