@@ -2161,8 +2161,6 @@ pkg_git_manpages() {
    msg='re-generate man pages (generated using "genmkfile manpages")'
    dry_run_or_run git add -- 'man'/* || true
    dry_run_or_run git add -- 'auto-generated-man-pages'/* || true
-   ## Pathspec-scoped: an unconditional every-pass commit must not sweep a
-   ## sibling's unrelated staged change into this generated-file commit.
    dry_run_or_run git commit -m "${msg}" -- 'man' 'auto-generated-man-pages' || true
    dry_run_or_run git status
    return 0
@@ -2182,7 +2180,6 @@ pkg_git_debinstfile() {
    msg='add debian install file (generated using "genmkfile debinstfile")'
    printf '%s\n' "PWD: '${PWD}'"
    dry_run_or_run git add -- "debian/${batch_current_package_reponame}.install" || true
-   ## Pathspec-scoped: see pkg_git_manpages.
    dry_run_or_run git commit -m "${msg}" -- "debian/${batch_current_package_reponame}.install" || true
    dry_run_or_run git status
    return 0
@@ -2773,10 +2770,8 @@ pkg_need_version_bump_and_pkg_build_and_reprepro_add() {
    #   return 0
    #fi
 
-   ## Regenerate every pass so a lone source edit cannot leave committed
-   ## output stale. Both commit scoped and no-op when unchanged, so a real
-   ## change lands before the bump decision below and a quiet package stays
-   ## quiet.
+   ## Regenerate manpages and install files before checking for changes to
+   ## catch accidents.
    pkg_git_manpages
    pkg_git_debinstfile
 
