@@ -37,6 +37,7 @@ runs:
         THIS_REPO: ${{ github.repository }}
         THIS_SHA: ${{ github.sha }}
         BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        ## TODO: Rename this environment variable.
         DIST_AI_REPO: ${{ inputs.repo }}
       ## $GITHUB_ACTION_PATH is runtime-resolved, so this works both
       ## in-repo and when GitHub downloads the action for a consumer.
