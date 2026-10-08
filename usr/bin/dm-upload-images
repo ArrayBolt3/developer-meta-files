@@ -156,10 +156,17 @@ upload_files() {
       ## set to "" for the second, real pass; quoted, the empty value would be handed to
       ## rsync as an EMPTY ARGUMENT rather than vanishing, and rsync reads that as an empty
       ## source path and fails the upload.
+      ## --checksum: image bodies are NOT byte-deterministic yet, and dm-raw-to-iso pins
+      ## the ISO mtime to SOURCE_DATE_EPOCH, so a content-changed rebuild keeps the SAME
+      ## size+mtime. rsync's default size+mtime quick-check would then SKIP re-uploading
+      ## the body while the sidecars (.sha512sums/.asc/.torrent) still refresh -- publishing
+      ## a signed checksum that no longer matches the served image. Compare by content so a
+      ## changed body always transfers.
       # shellcheck disable=SC2248
       ${rsync_cmd} \
          ${rsync_dry_run_maybe} \
          ${rsync_opts} \
+         --checksum \
          "${upload_file_list[@]}" \
          "${dist_server_with_upload_location_item_with_version_maybe}" \
          || { rsync_exit_code="$?" ; true; };
