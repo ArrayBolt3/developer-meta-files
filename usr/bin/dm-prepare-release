@@ -6,16 +6,25 @@
 MYDIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 
 ## provides was_executed
-## Source from working tree by default to ensure latest code is in use.
+## Prefer the working-tree copy (latest code during development); fall back to
+## the installed /usr/libexec/helper-scripts when run from an installed /usr/bin,
+## where ${MYDIR}/../../../helper-scripts does not exist.
+if [ -n "${HELPER_SCRIPTS_PATH:-}" ]; then
+   helper_scripts_base="${HELPER_SCRIPTS_PATH}"
+elif [ -e "${MYDIR}/../../../helper-scripts/usr/libexec/helper-scripts/check_runtime.bsh" ]; then
+   helper_scripts_base="${MYDIR}/../../../helper-scripts"
+else
+   helper_scripts_base=""
+fi
 # shellcheck source=../../../helper-scripts/usr/libexec/helper-scripts/check_runtime.bsh
-source "${HELPER_SCRIPTS_PATH:-${MYDIR}/../../../helper-scripts}/usr/libexec/helper-scripts/check_runtime.bsh" || true
+source "${helper_scripts_base}/usr/libexec/helper-scripts/check_runtime.bsh" || true
 if ! declare -F was_executed >/dev/null; then
    printf '%s\n' "$0: ERROR: cannot source check_runtime.bsh!" >&2
    exit 1
 fi
 
 # shellcheck source=../../../helper-scripts/usr/libexec/helper-scripts/has.bsh
-source "${HELPER_SCRIPTS_PATH:-${MYDIR}/../../../helper-scripts}/usr/libexec/helper-scripts/has.bsh"
+source "${helper_scripts_base}/usr/libexec/helper-scripts/has.bsh"
 
 ## 'variables' reassigns MYDIR, capture the dirs we need first.
 dmf_libexec_dir="${MYDIR}/../libexec/developer-meta-files"
