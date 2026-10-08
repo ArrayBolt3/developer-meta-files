@@ -104,7 +104,7 @@ jobs:
       - name: Resolve dist-ai ref (companion branch, else master)
         id: resolve_dist_ai
         if: inputs.dist-ai-ref == ''
-        uses: org-ai-assisted/developer-meta-files/.github/actions/resolve-dist-ai-ref@master
+        uses: org-ai-assisted/developer-meta-files/.github/actions/resolve-companion-ref@master
 
       - name: Checkout dist-ai (build + setup scripts)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2

@@ -8,8 +8,8 @@ name: 'Resolve companion ref'
 description: >-
   Decide which ref of a companion repo (dist-ai, helper-scripts, ...) to check
   out: this commit when the companion IS the repo under test, a same-named
-  companion branch when one exists, else master. See resolve-dist-ai-ref.sh for
-  why. 'repo' selects the companion; it defaults to dist-ai for back-compat.
+  companion branch when one exists, else master. See resolve-companion-ref.sh
+  for why. 'repo' selects the companion; it defaults to dist-ai for back-compat.
 
 inputs:
   repo:
@@ -25,7 +25,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Resolve dist-ai ref
+    - name: Resolve companion ref
       id: resolve
       shell: bash
       ## github.head_ref is set on pull_request only; ref_name covers push
@@ -38,7 +38,7 @@ runs:
         THIS_SHA: ${{ github.sha }}
         BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         ## TODO: Rename this environment variable.
-        DIST_AI_REPO: ${{ inputs.repo }}
+        COMPANION_REPO: ${{ inputs.repo }}
       ## $GITHUB_ACTION_PATH is runtime-resolved, so this works both
       ## in-repo and when GitHub downloads the action for a consumer.
-      run: "$GITHUB_ACTION_PATH/resolve-dist-ai-ref.sh"
+      run: "$GITHUB_ACTION_PATH/resolve-companion-ref.sh"
