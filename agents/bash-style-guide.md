@@ -499,7 +499,8 @@ text and no extra `\n` in the format. GATE-ENFORCED.
     Good: printf '%s\n' "${a}: kept ${b}"
 
 Several lines: one data argument per line, `printf '%s\n' "line1"
-"line2"`. A byte escape: an ANSI-C `$'\303\251'` value.
+"line2"`. A byte escape: an ANSI-C value like `$'\303\251'` (which
+translates to 'e' with an acute symbol).
 
 The gate also flags a double-quoted or unquoted format containing `$`
 or a backtick (data interpolated into the format).
