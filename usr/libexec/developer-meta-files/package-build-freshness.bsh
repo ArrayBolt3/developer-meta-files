@@ -123,11 +123,27 @@ dm_package_artifacts_present() {
    ## Architectures this build targets; genmkfile builds one .deb set per entry and
    ## defaults the list to the single build target.
    target_list="${make_cross_build_platform_list:-${dist_build_target_arch:-$(dpkg --print-architecture)}}"
-   ## '<pkg>\t<architecture-field>' per binary stanza; the source stanza has no Package:.
+   ## '<pkg>\t<architecture-field>' per binary stanza. Parse by PARAGRAPH so field
+   ## order within a stanza does not matter (Debian policy allows any order); strip
+   ## a trailing CR (CRLF control files) and trailing whitespace; skip a udeb stanza
+   ## (it produces a .udeb, not a .deb). The source stanza has no Package:.
    mapfile -t stanzas < <(awk '
+      function flush() {
+         if (pkg != "" && ptype != "udeb") { print pkg "\t" arch }
+         pkg = ""; arch = ""; ptype = ""
+      }
+      { sub(/\r$/, "") }
+      /^[ \t]*$/ { flush(); next }
       /^#/ { next }
       /^Package:/ { pkg = $2; next }
-      /^Architecture:/ { if (pkg != "") { sub(/^Architecture:[ \t]*/, ""); print pkg "\t" $0; pkg = "" } }
+      /^Package-Type:/ { ptype = $2; next }
+      /^Architecture:/ {
+         arch = $0
+         sub(/^Architecture:[ \t]*/, "", arch)
+         sub(/[ \t]+$/, "", arch)
+         next
+      }
+      END { flush() }
    ' "${control}")
    found_expected="false"
    for st in "${stanzas[@]}"; do
