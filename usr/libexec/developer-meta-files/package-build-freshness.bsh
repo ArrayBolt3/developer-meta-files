@@ -41,7 +41,7 @@ dm_source_hash_manifest_path() {
 
 ## Look up the recorded source hash for a source package (empty if none).
 dm_source_hash_lookup() {
-   local manifest="$1" source_pkg="$2" line manifest_pkg manifest_hash
+   local manifest="$1" source_pkg="$2" line manifest_pkg
    [ -f "${manifest}" ] || return 0
    ## '|| [ -n "${line}" ]' so a final line with no trailing newline is still examined.
    while IFS= read -r line || [ -n "${line}" ]; do
@@ -74,39 +74,93 @@ dm_source_hash_record() {
    mv -- "${tmp}" "${manifest}"
 }
 
-## True (0) only when the local package output still holds a built .deb for this
-## source at its CURRENT changelog version. The source-hash manifest alone cannot
-## prove this: it is persistent and written independently of the pool, so a cache
-## restore, a slot reset, or a concurrent build on another slot can revert/clear
-## the built .debs while the manifest survives. A skip that trusted the hash alone
-## would then ship whatever stale .deb remained. Requiring the current-version
-## artifact makes a reverted/absent output force a rebuild with nothing to recall.
-## Content-hash only: no reprepro, no version comparison.
+## Does a binary stanza's 'Architecture:' field cover a build target? Stable
+## Debian policy, mirroring genmkfile's make_architecture_covers_target
+## (make-helper-one.bsh): 'any'/'linux-any' and an exact '<arch>'/'linux-<arch>'
+## cover; anything else does not.
+dm_architecture_covers_target() {
+   local architecture_field="$1" target="$2" token
+   # shellcheck disable=SC2086 # architecture_field is a space-separated list that must word-split
+   for token in ${architecture_field}; do
+      case "${token}" in
+         any | linux-any)
+            return 0
+            ;;
+         "${target}" | "linux-${target}")
+            return 0
+            ;;
+      esac
+   done
+   return 1
+}
+
+## True (0) only when the local package output still holds EVERY .deb this source
+## would build for the current version and build target(s), each a REGULAR,
+## NON-EMPTY file. The source-hash manifest alone cannot prove this: it is
+## persistent and written independently of the pool, so a cache restore, a slot
+## reset, or a concurrent build on another slot can revert/clear the built .debs
+## while the manifest survives. A skip that trusted the hash alone would then ship
+## whatever stale .deb remained. Content hash only: no reprepro, no version
+## comparison.
+##
+## Per-binary .deb naming mirrors genmkfile (make-helper-one.bsh): an
+## 'Architecture: all' stanza yields <pkg>_<ver>_all.deb; an arch-dependent stanza
+## covering a target yields <pkg>_<ver>_<target>.deb; a stanza excluding every
+## target produces no .deb and is not required.
 dm_package_artifacts_present() {
-   local package_source_dir distdir control version
-   local -a binpkgs
-   local binpkg
+   local package_source_dir distdir control version target_list
+   local pkg archfield target suffix deb found_expected st
+   local -a stanzas
    package_source_dir="$1"
    ## Where genmkfile deposits built .debs (variables.d/70_cowbuilder.bsh).
    distdir="${make_cowbuilder_dist_folder:-${binary_build_folder_dist}/genmkfile-packages-result}"
    [ -d "${distdir}" ] || return 1
    control="${package_source_dir}/debian/control"
    [ -f "${control}" ] || return 1
-   ## .deb filenames drop the epoch (3:55.6-1 -> 55.6-1), same strip as genmkfile's
-   ## make_parse_changelog_version.
+   ## .deb filenames drop the epoch (3:55.6-1 -> 55.6-1), same strip genmkfile does.
    version="$(dpkg-parsechangelog --show-field Version --file "${package_source_dir}/debian/changelog")"
    version="${version#*:}"
-   ## Any one binary package of this source present at the current version proves
-   ## the last build's output for this version survived; a wholesale revert leaves
-   ## none (a single dpkg-buildpackage run stamps every binary with one version).
-   mapfile -t binpkgs < <(awk '/^#/{next} /^Package:/{print $2}' "${control}")
-   for binpkg in "${binpkgs[@]}"; do
-      [ -n "${binpkg}" ] || continue
-      if compgen -G "${distdir}/${binpkg}_${version}_*.deb" >/dev/null 2>&1; then
-         return 0
-      fi
+   ## Architectures this build targets; genmkfile builds one .deb set per entry and
+   ## defaults the list to the single build target.
+   target_list="${make_cross_build_platform_list:-${dist_build_target_arch:-$(dpkg --print-architecture)}}"
+   ## '<pkg>\t<architecture-field>' per binary stanza; the source stanza has no Package:.
+   mapfile -t stanzas < <(awk '
+      /^#/ { next }
+      /^Package:/ { pkg = $2; next }
+      /^Architecture:/ { if (pkg != "") { sub(/^Architecture:[ \t]*/, ""); print pkg "\t" $0; pkg = "" } }
+   ' "${control}")
+   found_expected="false"
+   for st in "${stanzas[@]}"; do
+      pkg="${st%%$'\t'*}"
+      archfield="${st#*$'\t'}"
+      [ -n "${pkg}" ] || continue
+      # shellcheck disable=SC2086 # target_list is a space-separated list that must word-split
+      for target in ${target_list}; do
+         if [ "${archfield}" = "all" ]; then
+            suffix="all"
+         elif dm_architecture_covers_target "${archfield}" "${target}"; then
+            suffix="${target}"
+         else
+            continue
+         fi
+         found_expected="true"
+         deb="${distdir}/${pkg}_${version}_${suffix}.deb"
+         ## A regular, non-empty file -- not a dangling symlink or a 0-byte stub.
+         if [ ! -f "${deb}" ] || [ ! -s "${deb}" ]; then
+            return 1
+         fi
+         ## 'all' is arch-independent: one _all.deb covers every target.
+         if [ "${suffix}" = "all" ]; then
+            break
+         fi
+      done
    done
-   return 1
+   ## A built package yields at least one .deb; none expected means an unexpected
+   ## state -- rebuild rather than skip on nothing.
+   if [ "${found_expected}" = "false" ]; then
+      return 1
+   fi
+   return 0
 }
 
 ## Decide whether a package source tree needs (re)building.
