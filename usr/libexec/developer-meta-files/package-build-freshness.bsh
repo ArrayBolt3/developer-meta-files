@@ -74,11 +74,47 @@ dm_source_hash_record() {
    mv -- "${tmp}" "${manifest}"
 }
 
+## True (0) only when the local package output still holds a built .deb for this
+## source at its CURRENT changelog version. The source-hash manifest alone cannot
+## prove this: it is persistent and written independently of the pool, so a cache
+## restore, a slot reset, or a concurrent build on another slot can revert/clear
+## the built .debs while the manifest survives. A skip that trusted the hash alone
+## would then ship whatever stale .deb remained. Requiring the current-version
+## artifact makes a reverted/absent output force a rebuild with nothing to recall.
+## Content-hash only: no reprepro, no version comparison.
+dm_package_artifacts_present() {
+   local package_source_dir distdir control version
+   local -a binpkgs
+   local binpkg
+   package_source_dir="$1"
+   ## Where genmkfile deposits built .debs (variables.d/70_cowbuilder.bsh).
+   distdir="${make_cowbuilder_dist_folder:-${binary_build_folder_dist}/genmkfile-packages-result}"
+   [ -d "${distdir}" ] || return 1
+   control="${package_source_dir}/debian/control"
+   [ -f "${control}" ] || return 1
+   ## .deb filenames drop the epoch (3:55.6-1 -> 55.6-1), same strip as genmkfile's
+   ## make_parse_changelog_version.
+   version="$(dpkg-parsechangelog --show-field Version --file "${package_source_dir}/debian/changelog")"
+   version="${version#*:}"
+   ## Any one binary package of this source present at the current version proves
+   ## the last build's output for this version survived; a wholesale revert leaves
+   ## none (a single dpkg-buildpackage run stamps every binary with one version).
+   mapfile -t binpkgs < <(awk '/^#/{next} /^Package:/{print $2}' "${control}")
+   for binpkg in "${binpkgs[@]}"; do
+      [ -n "${binpkg}" ] || continue
+      if compgen -G "${distdir}/${binpkg}_${version}_*.deb" >/dev/null 2>&1; then
+         return 0
+      fi
+   done
+   return 1
+}
+
 ## Decide whether a package source tree needs (re)building.
 ##   dm_package_needs_rebuild <package_source_dir> <apt_codename>
 ## Returns 0 (needs rebuild) when the source content differs from what was last
-## built or when nothing was ever recorded for it. Returns 1 (skip) only when
-## the recorded hash matches the current source hash.
+## built, when nothing was ever recorded for it, or when its built artifact is no
+## longer present in the local package output. Returns 1 (skip) only when the
+## recorded hash matches the current source hash AND that artifact is still there.
 dm_package_needs_rebuild() {
    local package_source_dir apt_codename
    local source_pkg manifest current_hash stored_hash
@@ -97,6 +133,13 @@ dm_package_needs_rebuild() {
       return 0
    fi
 
-   true "INFO: skip ${source_pkg}: source unchanged since last build."
+   ## Source unchanged, but the manifest can be stale against the pool; only skip
+   ## when the built artifact for this version actually survived.
+   if ! dm_package_artifacts_present "${package_source_dir}"; then
+      true "INFO: rebuild ${source_pkg}: built artifact absent from the local package output (pool reverted or cleared)."
+      return 0
+   fi
+
+   true "INFO: skip ${source_pkg}: source unchanged since last build and artifact present."
    return 1
 }
