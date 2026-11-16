@@ -1473,6 +1473,11 @@ Bad -- the mode is not atomic (a `chmod` follows the create):
     mkdir --parents -- "${TMPDIR}"
     chmod 700 -- "${TMPDIR}"          # TOCTOU: dir is world-visible first
 
+This split form is owned by R-173 (which rewrites it to a single
+`install -d -m`); R-172 defers it there rather than double-report. R-172
+still flags a temp `mkdir` that drops the mode entirely or uses a short
+`-m`.
+
 Bad -- no mode at all:
 
     mkdir --parents -- "${TMPDIR}"
@@ -1517,6 +1522,85 @@ a `TMPDIR` / `TMP` / `TEMP` / `TEMPDIR` variable and that carries no
 `--mode=`, on a non-comment line of a changed shell file. A `mkdir` that
 does not create one of those temp variables, and a name that merely
 starts with the prefix (`${TMPFILE}`), are not matched.
+
+
+**R-173: A `mkdir` immediately followed by a same-directory `chmod` must
+be one atomic `install -d -m`.**
+
+    install -d -m 0755 -- "${dir}"
+
+Creating a directory and then setting its mode in a separate `chmod` is
+two problems in one. It leaves a TOCTOU window -- the directory exists
+with the umask-default (potentially world-traversable) mode until the
+`chmod` lands -- and it takes two commands where one does the job.
+
+Bad -- the create and the mode are split:
+
+    mkdir --parents -- "${dir}"
+    chmod 0755 -- "${dir}"
+
+Use `install -d -m` instead of `mkdir --parents --mode=` for this. For a
+SINGLE-component target it sets the mode on the directory AND re-modes an
+existing one (fixing messed-up perms on a directory that already exists),
+whereas `mkdir --parents --mode=` modes only the deepest component -- the
+SC2174 case. Being `install`, not `mkdir`, it never trips SC2174, so no
+`# shellcheck disable=SC2174` is needed. `install -d` is idempotent (like
+`mkdir --parents`): it succeeds when the directory already exists.
+
+Caveat -- a MULTI-component target (`a/b/c`): `install -d -m MODE` applies
+MODE only to the final component; any PARENT it has to create (`a`, `b`)
+is made 0755, independent of `-m` AND the umask. So `install -d -m 0700
+-- a/b/c` leaves `a` and `b` world-traversable (0755) -- unlike `mkdir
+--parents -- a/b/c; chmod 0700 -- a/b/c`, where the parents keep the
+umask-default mode (0700 under `umask 077`). `mkdir --parents --mode=0700`
+is no better: `--mode` with `--parents` also modes only the deepest
+component (the SC2174 case). So the fixer auto-rewrites only a
+single-component target; a multi-component pair is left for a human
+(below), who must set the parents' perms deliberately.
+
+`pre-push-fix` rewrites only the mechanical, behavior-preserving case,
+where the whole pair reconstructs losslessly to `install -d -m MODE --
+DIR`: a `mkdir --parents DIR` whose ONLY option is `--parents`, a `chmod
+MODE DIR` with a numeric octal mode and no flags, both unwrapped, with
+nothing but a plain separator (newline, `;`, or `&&`) between them and
+one directory operand -- a single path component (no `/`) -- textually
+the same on both sides. It is left for a human -- flagged, not rewritten
+-- when:
+
+- the `mkdir` has no `--parents`. A plain `mkdir DIR` FAILS if `DIR`
+  already exists (the lock-directory idiom relies on that); `install -d`
+  reuses it, so the rewrite is not behavior-preserving. Only `--parents`,
+  already idempotent, maps cleanly to `install -d`. The atomic form here
+  is `mkdir --mode=MODE -- DIR` (one command, same fail-on-exists
+  semantics), NOT `install -d`.
+- the target is a multi-component path (contains `/`). `install -d -m`
+  modes only the final component and makes any parent it creates 0755
+  regardless of `-m`/umask, so a private path's parents would be exposed.
+  Keep `mkdir --parents` + `chmod` (whose parents follow the umask), or
+  set the parents' perms deliberately. The fixer judges this by a LITERAL
+  `/` in the source, so an opaque `"${dir}"` is treated as a single
+  component and still auto-rewritten -- if it may expand to a private
+  multi-component path, prefer the explicit forms above.
+- the `mkdir` carries any other option, or the `chmod` carries any flag.
+  The fix reconstructs `install -d -m`, so an option it does not
+  reproduce would be silently dropped -- notably `-Z` / `--context=`
+  (the SELinux/SMACK security context of the created directory).
+- the mode is symbolic (`u+rwx`: `chmod` applies it relative to the
+  existing bits, `install -m` sets absolute bits, so the two differ).
+- either command is wrapped (`sudo mkdir ...; sudo chmod ...`), carries a
+  redirection, or is backgrounded (`&`) or negated (`!`) -- shfmt attaches
+  those to the statement and the collapse would drop or mis-scope them.
+- a comment sits between the two.
+
+Waiver: `## style-ok: allow-mkdir-then-chmod` anywhere in the script.
+Reserve it for a case where the split is deliberate (a mode that must be
+widened only after the directory is populated, say).
+
+Enforcement: the gate flags a command-position `mkdir` with a single
+directory operand that is IMMEDIATELY followed, in the same statement
+list (or across `&&`), by a `chmod` on the textually same directory. A
+recursive `chmod -R`, a non-adjacent `chmod` (another command between),
+and a `chmod` on a different operand are not matched.
 
 
 **R-190: A substantial interpreter program does not belong in a

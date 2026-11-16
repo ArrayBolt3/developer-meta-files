@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 ## Copyright (C) 2012 - 2025 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
 ## See the file COPYING for copying conditions.
@@ -543,6 +543,23 @@ Please donate! [C]
 }
 
 
+## Publish the image's embedded CycloneDX SBOM as a signed sidecar next to one
+## image artifact. 4300 copied the SBOM out to ${binary_image_raw_file}.cdx.json
+## (named per flavor/target so builds sharing the output folder do not clobber
+## it); all image formats of one build share the rootfs, so one SBOM. Gated on a
+## non-empty target so only image artifacts (ova/raw/qcow2/iso) get it, matching
+## .dm-buildinfo -- source/installer artifacts do not.
+image_sbom_sidecar_sign() {
+   local file_item target
+   file_item="$1"
+   target="$2"
+   [ -n "${target}" ] || return 0
+   [ -f "${binary_image_raw_file}.cdx.json" ] || return 0
+   safe-rm --force -- "${file_item}.cdx.json"
+   cp -- "${binary_image_raw_file}.cdx.json" "${file_item}.cdx.json"
+   sign_and_verify_all "${file_item}.cdx.json"
+}
+
 signatures_create() {
    local var_names file_list upload_url_part target_names should_signify_list
    var_names=()
@@ -653,20 +670,25 @@ signatures_create() {
       sha512sum --check -- "${file_item}.sha512sums"
 
       if [ "${should_signify}" = "true" ]; then
-         sign_and_verify_signify "${file_item}"
+         sign_and_verify_all "${file_item}"
       else
-         sign_and_verify "${file_item}"
+         sign_and_verify_openpgp "${file_item}"
       fi
-      sign_and_verify_signify "${file_item}.torrent"
-      sign_and_verify_signify "${file_item}.sha512sums"
+      sign_and_verify_all "${file_item}.torrent"
+      sign_and_verify_all "${file_item}.sha512sums"
 
       local dm_target_item
       dm_target_item="${target_names[i]}"
       if [ -n "${dm_target_item}" ]; then
          "${dist_developer_meta_files_folder}/usr/bin/dm-reproducible-buildinfo" --target "${dm_target_item}" --image "${file_item}"
-         sign_and_verify_signify "${file_item}.dm-buildinfo"
+         sign_and_verify_all "${file_item}.dm-buildinfo"
       fi
+
+      image_sbom_sidecar_sign "${file_item}" "${dm_target_item}"
    done
+
+   ## Remove the per-build SBOM staging copy; the signed per-artifact sidecars remain.
+   safe-rm --force -- "${binary_image_raw_file}.cdx.json"
 }
 
 legal_files_copy() {

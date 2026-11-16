@@ -122,7 +122,7 @@ jobs:
     ## ANDed with the fork-PR guard, which stays.
     if: >-
       vars.CI_ENABLED_ORG_AI_ASSISTED == 'true'
-      && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (github.event.pull_request.head.repo.full_name == github.repository || !startsWith(github.event_name, 'pull_request'))
     permissions:
       contents: read
     env:
@@ -273,6 +273,14 @@ jobs:
         ## anchor here (the maintainer re-verifies SLSA when bumping a pin). Needs
         ## 'helper-scripts: true' (the installer sources it), opted in alongside.
         run: |
+          # static-cli-install's `has stecho` / `sanitize-string` need the
+          # helper-scripts usr/bin tools on PATH, and sanitize-string is a python
+          # script that imports its sanitize_string module -- so also put the
+          # checkout's dist-packages on PYTHONPATH. The hs-runtime step above only
+          # symlinks the libexec SOURCING tree (helper-scripts: true is a
+          # co-requisite of static-analysis-tools).
+          export PATH="${GITHUB_WORKSPACE}/helper-scripts/usr/bin:${PATH}"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/helper-scripts/usr/lib/python3/dist-packages${PYTHONPATH:+:${PYTHONPATH}}"
           component/usr/bin/static-cli-install --tool zizmor --no-attest --no-vt --install-dir /usr/local/bin
           component/usr/bin/static-cli-install --tool actionlint --no-attest --no-vt --install-dir /usr/local/bin
 
